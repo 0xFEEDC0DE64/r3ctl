@@ -17,6 +17,7 @@
 #include "r3client.h"
 #include "bpmdetector.h"
 #include "audioformat.h"
+#include "r3ctlsettings.h"
 
 class QAudioInput;
 
@@ -25,7 +26,7 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget *parent = nullptr);
+    explicit MainWindow(R3CtlSettings &settings, QWidget *parent = nullptr);
     ~MainWindow();
 
 private slots:
@@ -50,6 +51,8 @@ private slots:
 
     void receivedFrames(const QVector<frame_t> &frames);
 
+    void themeSelected();
+
 private:
     void log(const QString &msg);
     void lightCmd(const QString &light, const QString &status);
@@ -57,6 +60,8 @@ private:
     void updateAudioDevices();
 
 private:
+    R3CtlSettings &m_settings;
+
     Ui::MainWindow m_ui;
     R3Client m_client;
 

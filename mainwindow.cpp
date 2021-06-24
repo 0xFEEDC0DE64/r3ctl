@@ -10,6 +10,8 @@
 #include <QDebug>
 #include <QAudioInput>
 #include <QJsonDocument>
+#include <QDir>
+#include <QMessageBox>
 
 namespace {
 template<typename QEnum>
@@ -19,8 +21,9 @@ QString enumToString(const QEnum value)
 }
 }
 
-MainWindow::MainWindow(QWidget *parent) :
-    QMainWindow{parent}
+MainWindow::MainWindow(R3CtlSettings &settings, QWidget *parent) :
+    QMainWindow{parent},
+    m_settings{settings}
 {
     m_ui.setupUi(this);
 
@@ -95,6 +98,21 @@ MainWindow::MainWindow(QWidget *parent) :
             }
     });
     m_timer2.start(1000/20);
+
+    m_ui.themeComboBox->addItem(tr("Default"), QString());
+
+    for(const auto &entry : QDir{QDir{QCoreApplication::applicationDirPath()}.absoluteFilePath(QStringLiteral("themes"))}.entryInfoList(QStringList { QStringLiteral("*.qss") }, QDir::Files))
+        m_ui.themeComboBox->addItem(entry.baseName(), entry.baseName());
+
+    if(!m_settings.theme().isEmpty())
+    {
+        auto index = m_ui.themeComboBox->findData(m_settings.theme());
+        if(index == -1)
+            QMessageBox::warning(this, tr("Invalid settings!"), tr("Invalid settings!") + "\n\n" + tr("Unknown theme!"));
+        m_ui.themeComboBox->setCurrentIndex(index);
+    }
+
+    connect(m_ui.themeComboBox, &QComboBox::currentIndexChanged, this, &MainWindow::themeSelected);
 }
 
 MainWindow::~MainWindow() = default;
@@ -241,6 +259,47 @@ void MainWindow::receivedFrames(const QVector<frame_t> &frames)
         m_distanceSum += std::abs(frame[0]);
         m_count++;
     }
+}
+
+void MainWindow::themeSelected()
+{
+    if (m_ui.comboBox->currentIndex() == -1)
+    {
+        qWarning() << "invalid theme selected";
+        return;
+    }
+
+    auto theme = m_ui.themeComboBox->currentData().toString();
+    if (theme == m_settings.theme())
+        return;
+
+    QString styleSheet;
+    if(!theme.isEmpty())
+    {
+        auto themePath = QDir{QDir{QCoreApplication::applicationDirPath()}.absoluteFilePath(QStringLiteral("themes"))}.absoluteFilePath(theme);
+
+        QFile file{themePath + ".qss"};
+
+        if(!file.exists())
+        {
+            QMessageBox::warning(this, tr("Could not load theme!"), tr("Could not load theme!") + "\n\n" + tr("Theme file does not exist!"));
+            return;
+        }
+
+        if(!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        {
+            QMessageBox::warning(this, tr("Could not load theme!"), tr("Could not load theme!") + "\n\n" + file.errorString());
+            return;
+        }
+
+        QTextStream textStream(&file);
+        styleSheet = textStream.readAll().replace(QStringLiteral("@THEME_RESOURCES@"), themePath);
+    }
+
+    if(!m_settings.setTheme(theme))
+        QMessageBox::warning(this, tr("Could not save theme!"), tr("Could not save theme!"));
+
+    qApp->setStyleSheet(styleSheet);
 }
 
 void MainWindow::log(const QString &msg)

@@ -1,110 +1,78 @@
 #include <QApplication>
 #include <QDebug>
-#include <QTimer>
-#include <QJsonObject>
-#include <QJsonArray>
+#include <QDir>
+#include <QFileInfo>
+#include <QFileInfo>
+#include <QMessageBox>
 
-#include "r3client.h"
 #include "mainwindow.h"
+#include "r3ctlsettings.h"
 
-#include <memory>
+namespace {
+bool loadTheme(R3CtlSettings &settings);
+}
 
 int main(int argc, char *argv[])
 {
-    QApplication a(argc, argv);
+    QApplication app(argc, argv);
 
-    MainWindow mainWindow;
+    qSetMessagePattern(QStringLiteral("%{time dd.MM.yyyy HH:mm:ss.zzz} "
+                                      "["
+                                      "%{if-debug}D%{endif}"
+                                      "%{if-info}I%{endif}"
+                                      "%{if-warning}W%{endif}"
+                                      "%{if-critical}C%{endif}"
+                                      "%{if-fatal}F%{endif}"
+                                      "] "
+                                      "%{function}(): "
+                                      "%{message}"));
+
+    QCoreApplication::setOrganizationDomain(QStringLiteral("brunner.ninja"));
+    QCoreApplication::setOrganizationName(QStringLiteral("db-software"));
+    QCoreApplication::setApplicationName(QStringLiteral("r3ctl"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("1.0"));
+
+    R3CtlSettings settings{&app};
+
+    loadTheme(settings);
+
+    MainWindow mainWindow{settings};
     mainWindow.show();
 
-    return a.exec();
+    return app.exec();
+}
 
-    const auto arguments = [&](){
-        auto arguments = a.arguments();
-        arguments.removeFirst();
-        return arguments;
-    }();
+namespace {
+bool loadTheme(R3CtlSettings &settings)
+{
+    qDebug() << "Loading theme...";
 
-    if (arguments.isEmpty())
+    if(settings.theme().isEmpty())
+        return true;
+
+    auto themePath = QDir{QDir{QCoreApplication::applicationDirPath()}.absoluteFilePath(QStringLiteral("themes"))}.absoluteFilePath(settings.theme());
+
+    QFile file{themePath + ".qss"};
+
+    if(!file.exists())
     {
-        puts("No cmd given!");
-        return -1;
+        QMessageBox::warning(nullptr, QCoreApplication::translate("main", "Could not load theme!"),
+                             QCoreApplication::translate("main", "Could not load theme!") + "\n\n" +
+                             QCoreApplication::translate("main", "Theme file does not exist!"));
+        return false;
     }
 
-    R3Client client;
-
-    QObject::connect(&client, &R3Client::disconnected, [](){ qDebug() << "disconnected()"; });
-    QObject::connect(&client, &R3Client::error, [](QAbstractSocket::SocketError error){ qDebug() << "error()" << error; });
-
-    if (arguments.first() == "log")
+    if(!file.open(QIODevice::ReadOnly | QIODevice::Text))
     {
-        QObject::connect(&client, &R3Client::connected, [](){ qDebug() << "connected()"; });
-        QObject::connect(&client, &R3Client::statusReceived, [](const QString &ctx, const QJsonValue &jsonValue){ qDebug() << "statusReceived()" << ctx << jsonValue; });
-    }
-    else if (arguments.first() == "script")
-    {
-        QObject::connect(&client, &R3Client::connected, [&](){
-            client.sendMQTT("action/ceilingscripts/activatescript", QJsonObject{
-                {"colourlist", QJsonArray{
-                     QJsonObject{{"b", 0},   {"cw", 0}, {"g", 0},   {"r", 1000}, {"ww", 0}},
-                     QJsonObject{{"b", 100}, {"cw", 0}, {"g", 0},   {"r", 800},  {"ww", 0}},
-                     QJsonObject{{"b", 300}, {"cw", 0}, {"g", 0},   {"r", 0},    {"ww", 0}},
-                     QJsonObject{{"b", 100}, {"cw", 0}, {"g", 500}, {"r", 0},    {"ww", 0}},
-                     QJsonObject{{"b", 0},   {"cw", 0}, {"g", 800}, {"r", 0},    {"ww", 0}},
-                     QJsonObject{{"b", 0},   {"cw", 0}, {"g", 200}, {"r", 800},  {"ww", 0}}
-                 }},
-                {"fadeduration", 500},
-                {"script", "wave"}
-            });
-        });
-    }
-    else if (arguments.first() == "sendYmhButton")
-    {
-        if (arguments.size() < 2)
-        {
-            puts("No button given for sendYmhButton");
-            return -3;
-        }
-
-        const auto btn = arguments.at(1);
-
-        QObject::connect(&client, &R3Client::connected, [&client,btn](){
-            client.sendYmhButton(btn);
-        });
-        QObject::connect(&client, &R3Client::statusReceived, [btn](const QString &ctx, const QJsonValue &jsonValue){
-            if (ctx != "action/yamahastereo/ircmd")
-                return;
-            if (!jsonValue.isObject())
-            {
-                qWarning() << "json data is not an object";
-                qWarning() << jsonValue;
-                return;
-            }
-            const auto object = jsonValue.toObject();
-            if (!object.contains("Cmd"))
-            {
-                qWarning() << "json data does not contain Cmd";
-                qWarning() << object;
-                return;
-            }
-            const auto cmdValue = object.value("Cmd");
-            if (!cmdValue.isString())
-            {
-                qWarning() << "json data Cmd is not a string";
-                qWarning() << object;
-                return;
-            }
-            const auto cmd = cmdValue.toString();
-            if (cmd == btn)
-                QCoreApplication::quit();
-        });
-    }
-    else
-    {
-        puts("Invalid cmd. Valid are log, script, sendYmhButton");
-        return -2;
+        QMessageBox::warning(nullptr, QCoreApplication::translate("main", "Could not load theme!"),
+                             QCoreApplication::translate("main", "Could not load theme!") + "\n\n" +
+                             file.errorString());
+        return false;
     }
 
-    client.open();
+    QTextStream textStream(&file);
+    qApp->setStyleSheet(textStream.readAll().replace(QStringLiteral("@THEME_RESOURCES@"), themePath));
 
-    return a.exec();
+    return true;
+}
 }
